@@ -1,0 +1,1103 @@
+---
+title: "ADEI - Final Deliverable"
+author: "Joan DOmingo Navarro"
+date: \today
+output:
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+  html_document:
+    toc: no
+    toc_depth: '4'
+  word_document:
+    toc: no
+    toc_depth: '4'
+geometry: left=1.9cm,right=1.9cm,top=1.25cm,bottom=1.52cm
+fontsize: 18pt
+subtitle: 'Data Processing, Analysis and Modelization'
+classoption: a4paper
+editor_options: 
+  
+  chunk_output_type: console
+---
+
+
+# Introduction
+## Data Description
+Descripció de les variables del dataset que usarem
+
+  -   manufacturer	Factor: Audi, BMW, Mercedes or Volkswagen
+  -   model:	Car model
+  -   year:	registration year
+  -   price:	price in £
+  -   transmission:	type of gearbox
+  -   mileage:	distance used
+  -   fuelType:	engine fuel
+  -   tax:	road tax
+  -   mpg:	Consumption in miles per gallon
+  -   engineSize:	size in litres
+  
+
+## Load Required Packages
+
+Carreguem els paquets necessaris
+
+```{r paquets, message=FALSE, warning=FALSE, include=FALSE}
+# Clean workspace
+rm(list=ls())
+
+options(contrasts=c("contr.treatment","contr.treatment"))
+
+requiredPackages <- c("effects","FactoMineR","car", "factoextra","RColorBrewer",
+                      "ggplot2","dplyr","ggmap","ggthemes","knitr", 
+                      "magrittr","missMDA","mvoutlier","chemometrics")
+
+package.check <- lapply(requiredPackages, FUN = function(x) {
+  if (!require(x, character.only = TRUE)) {
+    install.packages(x, dependencies = TRUE)
+    library(x, character.only = TRUE)
+  }
+})
+search()
+```
+
+
+## Some useful functions
+
+```{r funcions}
+# Some useful functions
+calcQ <- function(x) {
+  s.x <- summary(x)
+  iqr<-s.x[5]-s.x[2]
+  list(souti=s.x[2]-3*iqr, mouti=s.x[2]-1.5*iqr, min=s.x[1], q1=s.x[2], q2=s.x[3], 
+       q3=s.x[5], max=s.x[6], mouts=s.x[5]+1.5*iqr, souts=s.x[5]+3*iqr ) }
+
+countNA <- function(x) {
+  mis_x <- NULL
+  for (j in 1:ncol(x)) {mis_x[j] <- sum(is.na(x[,j])) }
+  mis_x <- as.data.frame(mis_x)
+  rownames(mis_x) <- names(x)
+  mis_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {mis_i <- mis_i + as.numeric(is.na(x[,j])) }
+  list(mis_col=mis_x,mis_ind=mis_i) }
+
+countX <- function(x,X) {
+  n_x <- NULL
+  for (j in 1:ncol(x)) {n_x[j] <- sum(x[,j]==X) }
+  n_x <- as.data.frame(n_x)
+  rownames(n_x) <- names(x)
+  nx_i <- rep(0,nrow(x))
+  for (j in 1:ncol(x)) {nx_i <- nx_i + as.numeric(x[,j]==X) }
+  list(nx_col=n_x,nx_ind=nx_i) }
+```
+
+## Load data
+
+Carreguem el dataset i definim el nostre directori de treball
+
+```{r load}
+setwd("D:/Drive/UNI/Q7/ADEI/")
+filepath<-"D:/Drive/UNI/Q7/ADEI/"
+# Data set: MyOldCars-Raw
+load(paste0(filepath,"MyOldCars-Raw.RData"))
+```
+
+
+
+
+# Validation of the Data Set: description of the process
+
+## Univariate Descriptive Analysis
+
+Ens informem primer de les variables del data set
+
+```{r}
+names(df)
+summary(df)
+```
+
+Inicialitzem els vectors de missings, outliers i errors
+
+```{r}
+imis<-rep(0,nrow(df))  # rows - trips
+jmis<-rep(0,2*ncol(df))  # columns - variables
+mis1<-countNA(df)
+iouts<-rep(0,nrow(df))  # rows - trips
+jouts<-rep(0,2*ncol(df))  # columns - variables
+ierrs<-rep(0,nrow(df))  # rows - trips
+jerrs<-rep(0,2*ncol(df))  # columns - variables
+```
+
+### New variables
+
+Creem la nova variable age a partir de la variable year
+
+```{r}
+df$age <-  2021 - df$year
+```
+
+### Variables qualitatives (factors)
+
+Factoritzem les variables categoriques i mostrem un barplot de cada una d'aquestes
+
+#### Model
+
+Car model
+
+Factoritzem la variable model amb combinació del manufacturer per que quedi una variable categòrica amb forma 'Manufacturer - Model'
+```{r}
+df$model<-factor(paste0(df$manufacturer,"-",df$model))
+levels(df$model)
+barplot(summary(df$model), las=2)
+```
+
+#### Year
+
+Registration year
+```{r}
+df$year<-factor(df$year)
+levels(df$year)
+barplot(summary(df$year))
+summary(df$year)
+```
+
+#### Transmission
+
+Type of gearbox
+```{r}
+df$transmission <- factor( df$transmission, 
+                           levels = c("Manual","Semi-Auto","Automatic"),labels =
+                             paste0("f.Trans-",c("Manual","SemiAuto","Automatic")))
+levels(df$transmission)
+barplot(summary(df$transmission))
+```
+
+#### FuelType
+
+Engine fuel
+```{r}
+df$fuelType <- factor( df$fuelType, levels = c("Diesel","Petrol","Hybrid"), 
+                       labels = paste0("f.Fuel-",c("Diesel","Petrol","Hybrid")))
+levels(df$fuelType)
+barplot(summary(df$fuelType)) # es pot veure que te NA's, després els contem
+
+```
+
+#### Manufacturer
+
+Audi, BMW, Mercedes or Volkswagen
+```{r}
+df$manufacturer <- factor(df$manufacturer)
+levels(df$manufacturer)
+barplot(summary(df$manufacturer))
+
+summary(df[c("model", "year", "transmission", "fuelType", "manufacturer")])
+
+```
+
+### Variables quantitatives (check outliers/errors)
+
+Busquem errors i outliers en les variables numeriques i els convertim en missings per després imputar-los. Considerem errors depenent de cada variable, però en general valors negatius o 0. En els boxplots queden marcats els outliers extrems. També es poden veure a les variables length(sel) (nombre d'errors) i length(llout) (nombre de outliers extrems).
+
+#### Price
+
+Price in £
+```{r}
+summary(df$price)
+#error detection
+
+sel<-which(df$price <=0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[3]<-length(sel)
+df[sel,"price"]<-NA
+
+#outlier detection
+Boxplot(df$price)
+var_out<-calcQ(df$price)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$price>var_out$souts)|(df$price<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[3]<-length(llout)
+df[llout,"price"]<-NA
+```
+
+#### Mileage
+
+Distance used
+```{r}
+summary(df$mileage)
+
+#error detection
+sel<-which(df$mileage <0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[5]<-length(sel)
+df[sel,"mileage"]<-NA
+
+#outlier detection
+Boxplot(df$mileage)
+var_out<-calcQ(df$mileage)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$mileage>var_out$souts)|(df$mileage<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[5]<-length(llout)
+df[llout,"mileage"]<-NA
+```
+
+#### Tax
+
+Road tax
+```{r}
+summary(df$tax)
+#error detection
+sel<-which(df$tax <0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[7]<-length(sel)
+df[sel,"tax"]<-NA
+
+#outlier detection
+Boxplot(df$tax)
+var_out<-calcQ(df$tax)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$tax>var_out$souts)|(df$tax<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[7]<-length(llout)
+df[llout,"tax"]<-NA
+```
+
+#### Mpg
+
+Consumption in miles per gallon
+```{r}
+summary(df$mpg)
+#error detection
+sel<-which(df$mpg <=0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[8]<-length(sel)
+df[sel,"mpg"]<-NA
+
+#outlier detection
+Boxplot(df$mpg)
+var_out<-calcQ(df$mpg)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$mpg>var_out$souts)|(df$mpg<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[8]<-length(llout)
+df[llout,"mpg"]<-NA
+```
+
+#### EngineSize
+
+Size in litres
+```{r}
+summary(df$engineSize)
+
+#error detection
+sel<-which(df$engineSize <=0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[9]<-length(sel)
+df[sel,"engineSize"]<-NA
+
+#outlier detection
+Boxplot(df$engineSize)
+var_out<-calcQ(df$engineSize)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$engineSize>var_out$souts)|(df$engineSize<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[9]<-length(llout)
+df[llout,"engineSize"]<-NA
+
+df$engineSize <- factor(cut(df$engineSize,breaks=c(0, 1.5, 2, 6),include.lowest = T ), labels = c("Small","Medium","Big"))
+summary(df$engineSize)
+```
+
+#### Age
+
+Car age
+```{r}
+summary(df$age)
+
+#error detection
+sel<-which(df$age <0)
+ierrs[sel]<-ierrs[sel]+1
+jerrs[11]<-length(sel)
+df[sel,"age"]<-NA
+
+#outlier detection
+Boxplot(df$age)
+var_out<-calcQ(df$age)
+abline(h=var_out$souts,col="red")
+abline(h=var_out$souti,col="red")
+
+# Outliers:
+llout<-which((df$age>var_out$souts)|(df$age<var_out$souti))
+iouts[llout]<-iouts[llout]+1
+jouts[11]<-length(llout)
+df[llout,"age"]<-NA
+```
+
+
+## Data Quality Report
+
+Per variable, count: Number of missing values, Number of errors (including inconsistencies), 
+Number of outliers, Rank variables according the sum of missing values (and errors).
+
+```{r}
+#missings
+mis1<-countNA(df)
+imis<-mis1$mis_ind
+missings <- sort.list(mis1$mis_col$mis_x, decreasing = TRUE)
+for (i in missings){
+  print(paste(names(df)[i], " : ", mis1$mis_col$mis_x[i]))
+}
+
+#errors
+errors <- sort.list(jerrs, decreasing = TRUE)
+for (i in errors){
+  if(!is.na(names(df)[i])) {print(paste(names(df)[i], " : ", jerrs[i]))}
+}
+
+#outliers
+outliers <- sort.list(jouts, decreasing = TRUE)
+for (i in outliers){
+  if(!is.na(names(df)[i])) {print(paste(names(df)[i], " : ", jouts[i]))}
+}
+
+```
+
+Clarifiquem que el nombre de missings es conta al moment, per tant també es consideren missings els valor imputats com a NA a la secció anterior. El nombre real de missings abans del tractament seria nº de missings - nº d'outliers - nº d'errors.
+
+
+Per individuals, count: number of missing values, number of errors, number of outliers
+
+```{r}
+barplot(table(imis))
+
+barplot(table(ierrs))
+
+barplot(table(iouts))
+```
+
+Create variable adding the total number missing values, outliers and errors.
+
+```{r}
+total_m<-0
+total_e<-0
+total_o<-0
+for (i in imis) {
+  total_m<- total_m + i
+}
+for (i in ierrs) {
+  total_e<- total_e + i
+}
+for (i in iouts) {
+  total_o<- total_o + i
+}
+total_m
+total_e
+total_o
+
+missing_before <- total_m - total_o - total_e
+missing_before #els vists a fuelType
+
+```
+
+
+# Data Imputation 
+
+Per la variable target, borrem les observacions amb NA's.
+Per la resta de variables fem imputació numèrica o quantitativa 
+
+## Target variable
+
+```{r}
+sel <- which( is.na( df$price ) )
+df <- df[ -sel, ]
+```
+
+## Explicative numeric variables
+
+```{r}
+library(missMDA)
+# Now one by one describe vars and put them on lists
+names(df)
+vars_con<-names(df)[c(3,5,7:8, 11)]
+vars_dis<-names(df)[c(1:2, 4, 6, 9:10)]
+vars_res<-names(df)[c(3)]
+
+summary(df[,vars_con])
+res.impca<-imputePCA(df[,vars_con],ncp=4)
+summary(res.impca$completeObs)
+
+df[ , vars_con ]<-res.impca$completeObs
+```
+ 
+## Explicative categorical variables
+
+```{r}
+summary(df[,vars_dis])
+res.immca<-imputeMCA(df[,vars_dis],ncp=10)
+summary(res.immca$completeObs)
+
+df[ , vars_dis ]<-res.immca$completeObs
+```
+
+
+Describe these variables, to which other variables exist higher associations.  
+
+ - Compute the correlation with all other variables. Rank these variables according the correlation
+
+```{r message=FALSE, warning=FALSE}
+library(mvoutlier)
+library(FactoMineR)
+res <- cor(df[,vars_con])
+round(res, 2)
+
+library(corrplot)
+corrplot(res)
+```
+
+## Discretitzation
+
+Discretitzem les variables numèriques convertint-les en factors segons els seus quartils. Per fer això, mirem els quartils de cada variable i busquem uns intervals on hi hagi un numero semblant de mostres.
+
+### Price
+
+```{r}
+summary(df$price)
+
+quantile(df$price,seq(0,1,0.25),na.rm=TRUE)
+df$f.price<-factor(cut(df$price/1000,breaks=c(0,15,20,26, 90),include.lowest = T ))
+levels(df$f.price)<-paste("f.price-",levels(df$f.price),sep="")
+table(df$f.price,useNA="always")
+```
+
+### Mileage
+
+```{r}
+summary(df$mileage)
+
+quantile(df$mileage,seq(0,1,0.25),na.rm=TRUE)
+df$aux<-factor(cut(df$mileage,breaks=c(0,5750,17800,36000, 195000),include.lowest = T ))
+summary(df$aux)
+tapply(df$mileage,df$aux,median)
+df$f.miles<-factor(cut(df$mileage/1000,breaks=c(0,6,18,36, 195),include.lowest = T ))
+levels(df$f.miles)<-paste("f.miles-",levels(df$f.miles),sep="")
+table(df$f.miles,useNA="always")
+```
+
+### Tax
+
+```{r}
+summary(df$tax)
+
+quantile(df$tax,seq(0,1,0.25),na.rm=TRUE)
+df$aux<-factor(cut(df$tax,breaks=c(0, 125, 145, 570),include.lowest = T ))
+summary(df$aux)
+tapply(df$tax,df$aux,median)
+df$f.tax<-factor(cut(df$tax,breaks=c(0, 125, 145, 570),include.lowest = T ))
+levels(df$f.tax)<-paste("f.tax-",levels(df$f.tax),sep="")
+table(df$f.tax,useNA="always")
+```
+
+### Mpg
+
+```{r}
+summary(df$mpg)
+
+quantile(df$mpg,seq(0,1,0.25),na.rm=TRUE)
+df$aux<-factor(cut(df$mpg,breaks=c(0, 45, 54, 62, 101),include.lowest = T ))
+summary(df$aux)
+tapply(df$mpg,df$aux,median)
+df$f.mpg<-factor(cut(df$mpg,breaks=c(0, 45, 54, 62, 101),include.lowest = T ))
+levels(df$f.mpg)<-paste("f.mpg-",levels(df$f.mpg),sep="")
+table(df$f.mpg,useNA="always")
+```
+
+### Age
+
+```{r}
+summary(df$age)
+
+quantile(df$age,seq(0,1,0.25),na.rm=TRUE)
+df$aux<-factor(cut(df$age,breaks=c(0, 2, 4.1, 5.1, 15),include.lowest = T ))
+summary(df$aux)
+tapply(df$age,df$aux,median)
+df$f.age<-factor(cut(df$age,breaks=c(0, 2, 4.1, 5.1, 15),include.lowest = T ))
+levels(df$f.age)<-paste("f.age-",levels(df$f.age),sep="")
+table(df$f.age,useNA="always")
+
+
+summary(df)
+```
+
+# Feature Selection for Numeric Target and Binary Target
+
+## Numeric Profiling
+
+Fem profiling de la variable target numérica (price) per trobar la relació d'aquesta amb les altres variables
+
+```{r}
+
+library(FactoMineR)
+summary(df$price)
+# The "variable to describe cannot have NA
+res.condes<-condes(df[,c(vars_res,vars_con,vars_dis)],3)
+
+res.condes$quanti  # Global association to numeric variables
+res.condes$quali # Global association to factors
+res.condes$category  # Partial association to significative levels in factors
+
+```
+
+S'utilitza per fer totes les combinacions possibles de variables numèriques i factorials.
+Tindrem les variables que tenen un pvalor a partir d'un llindar del pvalor acceptat. Només surten les variables que tenen una certa relació.
+
+La variable age, dins de els quantitatives, és la que te més relació amb price. Això indica que com més nou es un cotxe més preu té. Dins les qualitatives, la que te més relació és year, que implica la mateixa explicació que age.
+
+
+## Factorial Profiling
+
+Fem profiling pel factor Audi si/no
+
+```{r}
+# Binary Target: Audi?
+
+df$Audi<-ifelse(df$manufacturer == "Audi",1,0)
+df$Audi<-factor(df$Audi,labels=paste("Audi",c("No","Yes")))
+summary(df$Audi)
+# Pie
+piepercent<-round(100*(table(df$Audi)/nrow(df)),dig=2); piepercent
+pie(table(df$Audi),col=heat.colors(2),labels=paste(piepercent,"%"))
+legend("topright", levels(df$Audi), cex = 0.8, fill = heat.colors(2))
+# Bar Chart
+barplot(table(df$Audi),main="Barplot Binary Outcome - Factor",col=c("red","green"))
+
+library(FactoMineR)
+# The "variable to describe cannot have NA
+res.catdes<-catdes(df,18)
+
+res.catdes$quanti.var  # Global association to numeric variables
+res.catdes$quanti # Partial association of numeric variables to levels of outcome factor
+
+
+
+#Multivariate Outliers
+library(mvoutlier)
+
+summary(df[,vars_con])
+names(df)
+vars_con
+names(df)
+mout<-aq.plot(df[,c(3,5,7,8,11)],delta=qchisq(0.995,5),quan=0.995)
+
+library(chemometrics)
+summary(df[,vars_con])
+mout<-Moutlier(df[,c(3,5,8,11)],quantile = 0.995, plot = TRUE)
+
+ll<-which(mout$rd>5)
+Boxplot(mout$rd)
+df[ll,c(vars_res,vars_con)]
+df$mout <- 0
+df$mout[ ll ]<-1
+df$mout <- factor( df$mout, labels=c( "NoMOut","YesMOut"))
+
+summary(df$mout)
+df<-df[-13] #treiem la variable aux
+#save(df, vars_con, vars_dis, vars_res, file = "MyOldCars-5000Clean.RData")
+```
+
+Podem veure que el factor Audi si/no te relació amb les milles per galons (si no és Audi) i amb la taxa de circulació i el preu (si ho és).
+
+
+```{r}
+names(df)
+vars_con<-names(df)[c(5,7:8, 11)]
+vars_dis<-names(df)[c(1:2, 4, 6, 9:10, 12:16)]
+vars_res<-names(df)[c(3,17)]
+vars_dis
+```
+
+# PCA analysis
+
+```{r}
+c(vars_res, vars_dis,vars_con, "mout")
+ll <- which( df$mout == "YesMOut")
+res.pca<-PCA(df[,c(vars_res, vars_dis, vars_con)],quali.sup=c(2:13),quanti.sup= c(1), ind.sup = ll )
+
+plot.PCA(res.pca,choix=c("var"),invisible=c("quanti.sup"))
+plot.PCA(res.pca,choix=c("var"),invisible=c("var"))
+plot.PCA(res.pca,choix=c("var"),invisible=c("quali"))
+plot.PCA(res.pca,choix=c("ind"),invisible=c("ind"))
+```
+
+## Eigenvalues and dominant axes analysis
+
+Segons el criteri de Kaiser hem d'agafar 2 dimensions, que són les que tenen un eigenvalue major a 1. Segons Elbow hem d'agafar 2 o 3.
+```{r}
+summary(res.pca,nb.dec=2,nbind=1,nbelements=1,ncp=2)
+
+round(res.pca$eig,2)
+barplot(res.pca$eig[,1],main="valors propis",names.arg=paste("dim",1:nrow(res.pca$eig)))
+
+
+```
+ 
+## Individuals point of view
+
+Fem servir els extreme individuals per entendre millor els axes. Cap es Multivariate Outlier i la mitat son Audi, sent els 2 més influents Audi. Tots comparteixen molts atributs, com ser Manual, Diesel, amb anys entre 8 i 10, preu menor a 15.000 lliures, etc.
+```{r}
+inds <- res.pca$ind$coord
+inds <- as.data.frame(inds)
+rang<-inds[order(inds$Dim.1, decreasing = TRUE),]
+
+rang[1,]
+res.pca$ind$coord[row.names(rang)[1:10],1]
+df[which(row.names(df) %in% row.names(res.pca$ind$coord[row.names(rang)[1:10],])),1:18]
+
+```
+ 
+## Interpreting the axes
+
+Les variables que més contribueixen en la primera dimensió son mileage i age, que estan molt relacionades. En la segona dimensió la més representativa es tax. Les variables qualitatives amb més contribució a la dimensió 1 són year, el factor de mileage i el factor de age (com les quantitatives mileage i age).
+
+```{r}
+round(cbind(res.pca$var$coord[,1:2],res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+round(cbind(res.pca$var$cos2[,1:2],res.pca$var$contrib[,1:2]),2)
+
+res.des<-dimdesc(res.pca)
+res.des$Dim.1$quali
+
+plot.PCA(res.pca,choix=c("var"),axes=c(1,2))
+plot.PCA(res.pca,choix=c("ind"),cex=0.8)
+
+fviz_contrib(res.pca, choice="var", axes = 1:2)
+```
+ 
+## PCA with supplementary variables
+
+Fent servir com a variables suplementaries el factor Audi SI/NO, el model, el price i els MOut podem tornar a veure uns resultats mols semblants als de l'apartat anterior. La variable Audi SI/No, sobretot Audi SI, .
+
+
+```{r}
+c(vars_res, vars_dis,vars_con)
+ll <- which( df$mout == "YesMOut")
+
+res.pcaS<-PCA(df[,c(vars_res, vars_con, "model")],quali.sup=c(2,7),quanti.sup= c(1), ind.sup = ll)
+
+plot(res.pcaS$ind$coord[,1],res.pcaS$ind$coord[,2],pch=19,col="grey30")
+points(res.pcaS$quali.sup$coord[,1],res.pcaS$quali.sup$coord[,2],pch=15,col="magenta")
+text(res.pcaS$quali.sup$coord[,1],res.pcaS$quali.sup$coord[,2],labels=names(res.pcaS$quali.sup$coord[,1]),col="magenta",cex=0.8)
+
+res.pcaS$quali.sup$coord
+
+fviz_contrib(res.pcaS, choice="var", axes = 1:2)
+
+```
+
+
+# K-Means Classification
+
+## Description of clusters
+
+Un cop calculat el K-Means amb k=14, podem veure una inèrcia explicada del 92%. Les variables categoriques que estan més relacionades amb els cluster són el model i el manufacturer. Com es obvi, quan Audi = No, les variables que estan directament relacionades són el models de cotxe no Audi, encara que també ho són els cotxes amb engineSize = Big, i inversament relacionades les que si son audi. Quan Audi = Yes, apart dels modesl Audi, estan relacionats els cotxes amb engineSize Medium i amb mpg menor a 45. 
+Les variables numeriques més relacionades amb els cluster són mpg, tax i price, ja sigui Audi o no.
+```{r}
+ppcc<-res.pca$ind$coord[,1:4]
+dim(ppcc)
+kc<-kmeans(dist(ppcc),12, iter.max = 30, trace=F)
+kc$size
+
+llvout<-which(df$mout=="YesMOut")
+df[-llvout,"claKMMC"]<-kc$cluster
+kc$betweenss/kc$totss
+catdes(df,17)
+```
+ 
+# Hierarchical Clustering
+
+Per no parar l'execució, fiquem nb.clust = -1 per que ens esculli un tall a l'arbre automàticament a un nivell pròpiament suggerit. El resultat son 3 clusters caracteritzats per les variables categòriques year, f.price, f.miles, f.mpg i f.age.
+Concretament, el primer cluster esta descrit pels cotxes amb edat menor a 2 anys, amb menys de 6.000 milles i de l'any 2019. El segon per cotxes amb preus menors de 15.000 lliures i amb mileage entre 18.000 i 196.000.
+Per últim, el tercer cluster es caracteritza per cotxes amb una taxa de circulació entre 145 i 570, d'edat entre 5 i 15 anys i de l'any 2015.
+Les variables numèriques més característiques són el preu, la taxa, el mileage i l'edat. Pel cluster 1 en concret, ho és el preu, pel segon ho és la edat i la mileage i pel tercer la taxa.
+Podem veure també la dependencia dels cluster amb les dimensions del PCA, sent la Dim.1 la més important, i els individus qie millor descriuen els clausters.
+
+```{r}
+res.hcpc<-HCPC(res.pca,order=TRUE, nb.clust = -1)
+
+res.hcpc$desc.var$test.chi2
+
+res.hcpc$desc.var$category
+
+res.hcpc$desc.var$quanti.var
+
+res.hcpc$desc.var$quanti
+
+res.hcpc$desc.axes$quanti.var
+res.hcpc$desc.axes$quanti
+
+res.hcpc$desc.ind$para
+res.hcpc$desc.ind$dist
+```
+ 
+# CA analysis 
+
+## Eigenvalues and dominant axes analysis
+
+Farem CA sobre les variables f.price - f.age i sobre f.price - fuelType. Podem veure la taula de contingència i fer el test de Chi quadrat. Per f.price-f.age demostrem que les variables no són independents. Per f.price - fuelType podem asegurar el mateix. En els dos casos ens quedem amb tots els 3 eixos.
+
+```{r}
+par(mfrow=c(1,1))
+
+tt<-table(df[,c("f.price","f.age")])
+tt
+res.ca<-CA(tt)
+plot( res.ca, cex=0.8, graph.type = "classic" )
+lines( res.ca$row$coord[,1], res.ca$row$coord[,2], col="blue", lwd = 2 )
+lines( res.ca$col$coord[,1], res.ca$col$coord[,2], col="red", lwd = 2 )
+summary(res.ca,dig=2)
+chisq.test(tt)
+res.ca$eig
+
+tt<-table(df[,c("f.price","fuelType")])
+tt
+res.ca<-CA(tt)
+plot( res.ca, cex=0.8, graph.type = "classic" )
+lines( res.ca$row$coord[,1], res.ca$row$coord[,2], col="blue", lwd = 2 )
+lines( res.ca$col$coord[,1], res.ca$col$coord[,2], col="red", lwd = 2 )
+summary(res.ca)
+chisq.test(tt)
+res.ca$eig
+```
+ 
+# MCA analysis
+
+## Eigenvalues and dominant axes analysis
+
+El nombre de dimensions que hem d'agafar per HC han de ser totes aquelles les quals tenen un eigenvalue més gran que la mitjana d'aquest, que en són 9.
+```{r}
+par(mfrow=c(1,1))
+llvout<-which(df$mout=="YesMOut")
+res.mca<-MCA(df[,c("f.price","Audi",vars_dis[c(3:4, 6:11)],"price") ],quali.sup=c(1,2),quanti.sup=11 , ind.sup=llvout)
+summary(res.mca,nbelements=50, nbind=0)
+which(res.mca$eig[,1] > mean(res.mca$eig[,1]))
+
+
+```
+
+## Individuals point of view
+
+Podem veure que els individus més significatius són tots Volswaggen, manuals, dièsel i de fa entre 7 i 9 anys i que comparteixen casi tots les categories de taxa, mpg, preu, mileage, ...
+```{r}
+# Individual Representation
+plot.MCA(res.mca,choix=c("ind"),cex=0.8)
+plot.MCA(res.mca,choix=c("ind"),invisible=c("ind"),cex=0.8)
+
+
+inds <- res.mca$ind$coord
+inds <- as.data.frame(inds)
+rang<-inds[order(inds$`Dim 1`, decreasing = TRUE),]
+
+rang[1,]
+res.pca$ind$coord[row.names(rang)[1:10],1]
+df[which(row.names(df) %in% row.names(res.pca$ind$coord[row.names(rang)[1:10],])),1:18]
+
+```
+ 
+## Interpreting map of categories
+
+Les categories més característiques del a primera dimensió són l'edat (entre 5 i 15 anys), el preu (entre 15.000 i 20.000 i entre 26.000 i 90.000) i el mileage (entre 0 i 6.000).
+ 
+```{r}
+# Representation of categories
+plot.MCA(res.mca,choix=c("ind"),invisible=c("ind"),axes=c(1,2), graph.type = "classic", cex = 0.5)
+lines(res.mca$var$coord[1:3,1],res.mca$var$coord[1:3,2],lwd=1,col="black") # Transmission
+lines(res.mca$quali.sup$coord[1:4,1],res.mca$quali.sup$coord[1:4,2],lwd=2,col="darkgreen")
+names(res.mca)
+res.mca$var
+
+fviz_contrib(res.mca, choice="var", axes = 1:2)
+```
+ 
+## Interpreting the axes association to factor map
+
+Com hem dit a l'apartat anterior i es pot veure seguidament, price, miles i age són les variables factor més associades a la primera dimensió, encara que la taxa i els mpg també son grans contribuidors.
+```{r}
+round(cbind(res.mca$var$coord[,1:2],res.mca$var$cos2[,1:2],res.mca$var$contrib[,1:2]),2)
+round(cbind(res.mca$var$cos2[,1:2],res.mca$var$contrib[,1:2]),2)
+
+res.des<-dimdesc(res.mca)
+res.des$`Dim 1`$quali
+
+plot.MCA(res.mca,choix=c("var"),axes=c(1,2))
+plot.MCA(res.mca,choix=c("ind"),cex=0.8)
+```
+ 
+## MCA with supplementary variables
+
+Fent MCA amb variables suplementaries numèriques i qualitatives podem veure que hi han alguns factors que aporten més al les dues primeres dimensions, com es veu en el gràfic de punts.
+
+```{r}
+ll <- which( df$mout == "YesMOut")
+res.mcaS<-MCA(df[,c("f.price","Audi",vars_dis[c(3:4, 6:11)],vars_con,"price") ],quali.sup=c(1,2),quanti.sup=c(11:15) , ind.sup=ll)
+
+plot(res.mcaS$ind$coord[,1],res.mcaS$ind$coord[,2],pch=19,col="grey30")
+points(res.mcaS$quali.sup$coord[,1],res.mcaS$quali.sup$coord[,2],pch=15,col="magenta")
+text(res.mcaS$quali.sup$coord[,1],res.mcaS$quali.sup$coord[,2],labels=names(res.mcaS$quali.sup$coord[,1]),col="magenta",cex=0.8)
+
+which(res.mcaS$eig[,1] > mean(res.mcaS$eig[,1]))
+
+```
+
+# Hierarchical Clustering (from MCA)
+
+## Description of clusters
+
+Els clusters es descriuen sobretot per les variables categoriques f.price, transmission fuelType, ... i per les variables numèriques price, mileage i age.
+Podem veure per cada un dels clusters quines categories el descriuen millor.
+
+```{r}
+res.hcmc<-HCPC(res.mcaS,nb.clust=5,order=TRUE)
+df$claHCMC<-6
+df[row.names(res.hcmc$data.clust),"claHCMC"]<-res.hcmc$data.clust$clust
+df$claHCMC<-factor(df$claHCMC)
+levels( df$claHCMC ) <- paste0( "f.claHCMC-",levels( df$claHCMC ))
+summary(res.hcmc$data.clust$clust)
+table(df$claHCMC)
+
+res.hcmc$desc.var$test.chi2
+
+res.hcmc$desc.var$category
+
+res.hcmc$desc.var$quanti.var
+
+res.hcmc$desc.var$quanti
+```
+ 
+## Parangons and class-specific individuals
+
+Donats els individus més representatius de cada classe, podem representar-los gràficament.
+```{r}
+res.hcmc$desc.ind$para
+res.hcmc$desc.ind$dist
+
+#### Characteristic individuals
+para1<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$para[[1]]))
+dist1<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[1]]))
+para2<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$para[[2]]))
+dist2<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[2]]))
+para3<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$para[[3]]))
+dist3<-which(rownames(res.mca$ind$coord)%in%names(res.hcpc$desc.ind$dist[[3]]))
+plot(res.mca$ind$coord[,1],res.mca$ind$coord[,2],col="grey50",cex=0.5,pch=16)
+points(res.mca$ind$coord[para1,1],res.mca$ind$coord[para1,2],col="blue",cex=1,pch=16)
+points(res.mca$ind$coord[dist1,1],res.mca$ind$coord[dist1,2],col="chartreuse3",cex=1,pch=16)
+points(res.mca$ind$coord[para2,1],res.mca$ind$coord[para2,2],col="blue",cex=1,pch=16)
+points(res.mca$ind$coord[dist2,1],res.mca$ind$coord[dist2,2],col="darkorchid3",cex=1,pch=16)
+points(res.mca$ind$coord[para3,1],res.mca$ind$coord[para3,2],col="blue",cex=1,pch=16)
+points(res.mca$ind$coord[dist3,1],res.mca$ind$coord[dist3,2],col="firebrick3",cex=1,pch=16)
+
+```
+ 
+## Comparison of clusters obtained after Hierarchical Clustering (based on PCA) focusing on f.price target
+
+Comparem el price en les dues classificacions usant el Eta2. Podem veure que en el hcpc la variable price no caracteritza molt als clusters, doncs tax o age tenen un valor de Eta2 més gran. En canvi a hcmc te un valor relativament alt, i per tant més relacio amb els clusters.
+```{r}
+res.hcpc$desc.var$quanti.var
+res.hcmc$desc.var$quanti.var
+```
+ 
+## Comparison of clusters obtained after Hierarchical Clustering (based on PCA) focusing on Audi binary target
+
+Comparem la variable binaria Audi YES/NO mirant la seva representació. En el cluster 3 de hcpc hi ha una sobre-representació del Audi YES. En el cas de hcmc, en el cluster 1 està sobre-representat el Audi YES, en el cluster 2 el Audi NO i en el 3 el Audi NO.
+```{r}
+
+res.hcpc$desc.var$category$`3`["Audi=Audi No",]
+res.hcpc$desc.var$category$`3`["Audi=Audi Yes",]
+
+res.hcmc$desc.var$category$`1`["Audi=Audi No",]
+res.hcmc$desc.var$category$`1`["Audi=Audi Yes",]
+res.hcmc$desc.var$category$`2`["Audi=Audi No",]
+res.hcmc$desc.var$category$`2`["Audi=Audi Yes",]
+res.hcmc$desc.var$category$`3`["Audi=Audi No",]
+res.hcmc$desc.var$category$`3`["Audi=Audi Yes",]
+```
+
+
+# General Regression Model
+
+Segons el resultat de la Multivariate Analisys fet a les entregues anteriors, construim un model de regressió lineal inicial sense cap transformació de les variables. Tal com expressa l'anunciat, els models d'aquest apartat han de tenir dues variables numèriques a les que anomenarem covariables. També haurem d'afegir als models les variables factors més significants. L'últim pas per la modelització serà afegir transformacions al model tal que hi hagi una interacció entre dos factors i una altra entre un factor i una covariable.
+
+## Primer model amb covariables
+
+Per construir un primer model mínimament efectiu, mirem els resultats de MVA de les entregues anteriors. Aquest ens diu que les variables numèriques (a partir d'ara covariables) més relacionades amb la variable target Price són age, mpg i, amb menys relació, tax i mileage.
+
+```{r}
+m1<-lm(price~tax+mpg+age+mileage,data=df)
+summary(m1)
+Anova(m1)
+par(mfrow=c(2,2))
+plot(m1,id.n=0)
+par(mfrow=c(1,1))
+```
+
+Com es pot veure, les variables seleccionades expliquen un 54% de la variablilitat del preu dels cotxes, la que menys contribueix al model es tax. Amb els plots podem veure que els residus sembla que segueixen una distribució normal bastant exacte i una certa homoscedasticitat, però provarem de transformar les variables per trobar una millor explicabilitat pel model. 
+
+```{r}
+m2<-lm(log(price)~poly(tax,2)+poly(mpg,2)+poly(age,2)+sqrt(mileage),data=df)
+summary(m2)
+Anova(m2)
+par(mfrow=c(2,2))
+plot(m2,id.n=0)
+par(mfrow=c(1,1))
+AIC(m1,m2)
+```
+
+Sembla que aquest model ens dona millors resultats, de fet podem veure que ara el tax si que contribueix al logaritme de la variable target, cosa que abans no passava.
+
+## Millora del model inicial afegint factors
+
+Millorarem el primer model trobat a l'apartat anterior afegint les variables factor amb més relació amb el target, que són Year (que es una variable dependent de Age, per tant no aporta res nou al model), fuelType i transmission. Podriem afegir també model, que està molt relacionada, però ho rebutjem per evitar una complexitat del model molt alta.
+
+```{r}
+m3<-update(m2, ~.+fuelType+transmission,data=df)
+summary(m3)
+Anova(m3)
+par(mfrow=c(2,2))
+plot(m3,id.n=0)
+par(mfrow=c(1,1))
+
+m4 <- step(m3, k=log(nrow(df)))
+summary(m4)
+AIC(m1,m2,m3, m4)
+```
+
+Podem veure que afegir els factors fuelTpe i transmission fa millorar molt l'explicabilitat de la variabilitat del target, que ara és d'un 80%. Per últim, hem fet un step per trobar un model millor respecte el m3 que ja es prou bo, i el resultat es un model exactament igual.
+
+## Interacció entre variables pel model final
+
+Per acabar de trobar el millor model, afegim interaccions entre factors i covariables. En concret multipliquem els mpg amb el tipus de fuel i dividim el fuelType amb la transmissió. Aquestes modificacions ens donen que el model te una explicabilitat del 81%.
+
+```{r}
+m5<- lm(log(price) ~ poly(tax, 2) + poly(mpg,2) + poly(age, 2) + mileage + age*fuelType + fuelType:transmission, data = df)
+m6<- lm(log(price) ~ poly(tax, 2) + poly(mpg,2) + poly(age, 2) + mileage + tax*fuelType + fuelType:transmission, data = df)
+m7<- lm(log(price) ~ poly(tax, 2) + poly(mpg,2) + poly(age, 2) + mileage + mpg*fuelType + fuelType:transmission, data = df)
+m8<- lm(log(price) ~ poly(tax, 2) + poly(mpg,2) + poly(age, 2) + mileage + mileage*fuelType + fuelType:transmission, data = df)
+AIC(m1,m2,m3,m7)
+summary(m7)
+```
+
+# Logistic Regression Model
+
+Per la construcció del model de regressió logística haurem de separar el dataset en dades d'entrenament i dades de test primer de tot. També haurem de fer el model inicial respecte els resultats de la Multivariate Analisys de les anteriors entregues, on s'hauran d'afegir dues variables numèriques. Haurem d'afegir els factors més significants i interaccions entre aquests i amb un variable numèrica. Després d'analitzar la correctesa del model final haurem de predir la variable binaria Audi i mostrar la matriu de confusió de les prediccions de l'entrenament i del resultat d'aplicar el model a les dades de test.
+
+## Separació del dataset
+
+Creem dos conjunts de dades nous, train i test, a partir d'una divisió 70-30 del dataset original. El train dataset servirà per construir els millors models, mentres que el test dataset l'usarem per provar el millor model trobat i comprovar els resultats.
+
+```{r}
+llwork <- sample(1:nrow(df),round(0.70*nrow(df),0))
+
+dfall<-df
+df_train <- dfall[llwork,]
+df_test <-dfall[-llwork,]
+```
+
+## Primer model amb covariables
+
+Segons el MVA del entregables anteriors, les variables numèriques (o covariables) més relacionades amb la variable target binaria Audi són mpg, age i mileage, i seran les que usarem per construir el nostre model inicial. Podem veure que la variables age no es molt representativa
+
+```{r warning=FALSE}
+mb1<-glm(Audi~mpg+age+mileage,family="binomial",data=df_train)
+summary(mb1)
+
+marginalModelPlots(mb1)
+
+
+mb2<-glm(Audi~mpg+log(age)+log(mileage),family="binomial",data=df_train[!df_train$mout=="YesMOut",])
+summary(mb2)
+marginalModelPlots(mb2)
+
+
+AIC(mb1,mb2)
+
+```
+
+Després de provar diferents transformacions, hem comprovat que treure els multivariate Outliers i aplicar el logaritme a age i mileage ens fa obtenir un model millor.
+
+## Millora del model inicial afegint factors
+
+Afegim variables factor per millorar el primer model. Les variables factor amb més relació amb la variable Audi i, per tant, les que afegirem al model són, apart de model i manufacturer que no són independents a Audi, engineSize, fuelType i transmission. Evitem ficar també variables factors construïdes a partir de variables numèriques, ja que no aportarien res al model si les numèriques ja estan considerades.
+
+```{r}
+mb4 <- update(mb2, ~.+fuelType+transmission+engineSize,data=df_train[!df_train$mout=="YesMOut",])
+summary(mb4)
+marginalModelPlots(mb4)
+
+Anova(mb4, test="LR")
+anova( mb4, mb2, test="Chisq")
+plot(allEffects(mb4))
+
+AIC(mb1,mb2,mb4)
+```
+
+
+## Interacció entre variables pel model final
+
+Per acabar de trobar el millor model, afegim interaccions entre factors i covariables. 
+
+```{r}
+mb5<- glm(formula = Audi ~ mpg+log(age)+log(mileage) + fuelType + transmission + engineSize + (fuelType*engineSize) + mpg*transmission, 
+          family = "binomial", data = df_train[!df_train$mout == "YesMOut", ])
+summary(mb5)
+plot(allEffects(mb5))
+AIC(mb4,mb5,mb2)
+Anova(mb5, test="LR")
+```
+
+## Prediccions de la variable binaria Audi
+
+Un cop trobat el millor model que intentarà predir la variable binaria Audi, provem de utilitzar-lo per fer la predicció amb el train dataset. Per visualitar els resultats mostrem la matriu de confusió. Per últim, fem el mateix amb el test dataset, que mostrarà realment si el model es poc explicatiu de la variable target, o si es genera overfitting, i mostrem la matriu de confusió dels resultats.
+
+```{r}
+library(ResourceSelection)
+pred_train <- predict(mb5, newdata=df_train, type="response")
+htr <- hoslem.test(as.numeric(df_train$Audi)-1, pred_train)
+htr
+cbind(htr$observed, htr$expected)
+
+pred_test <- predict(mb5, newdata=df_test, type="response")
+ht <- hoslem.test(as.numeric(df_test$Audi)-1, pred_test)
+ht
+cbind(ht$observed, ht$expected)
+
+
+# Confusion Table Analysis
+audi.est <- ifelse(pred_train<0.5,0,1)
+tt<-table(audi.est,df_train$Audi);
+100*sum(diag(tt))/sum(tt)
+
+audi.est <- ifelse(pred_test<0.5,0,1)
+tt<-table(audi.est,df_test$Audi);tt
+100*sum(diag(tt))/sum(tt)
+```
+
+Segons el test de Hosmer i Lemeshow, com el p-valor es menor a 0.05, el model final trobat es un bon fit.
+
+Com ens mostren els resultats expressats en les matrius de confusió, la predicció amb el dataset de train ens dona una accuracy del 78%, mentre que la del test un 77%, pel que podem suposar que el model fet pel train s'adapta correctament al test i que no es massa pobre ni pel contrari massa especific.
+
+
